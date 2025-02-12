@@ -3,6 +3,7 @@
 
 #include <vector>
 #include <cstdlib>
+#include <ctime>
 #include <Kokkos_Core.hpp>
 #include <Kokkos_Random.hpp>
 
@@ -15,8 +16,8 @@ using namespace std;
 // ==============================================================
 void generateRandomData(Kokkos::View<double**, Kokkos::LayoutRight> array, const int &Nx, const int &Ny) {
     // Create random number pool
-    Kokkos::Random_XorShift64_Pool<> rand_pool(/*seed=*/12345);
-    
+    Kokkos::Random_XorShift64_Pool<> rand_pool(time(NULL)); ///*seed=*/12345
+
     // Parallel random number generation
     Kokkos::parallel_for("GenerateRandom2D",
         Kokkos::MDRangePolicy<Kokkos::Rank<2>>({0,0}, {Nx, Ny}),
@@ -49,7 +50,7 @@ void applyTopHatFilter(Kokkos::View<double**, Kokkos::LayoutRight> array, const 
 // ####################### Done #################################
 
 // ==============================================================
-// ===== Function to apply top-hat filter with Periodic BC ======
+// ====== Halo data transfer between different processors =======
 // ==============================================================
 void haloTransfer( Kokkos::View<double**, Kokkos::LayoutRight> localArray, 
                    const int &Nx, const int &Ny, const MPI_Comm& comm ) {
@@ -73,7 +74,7 @@ void haloTransfer( Kokkos::View<double**, Kokkos::LayoutRight> localArray,
     //j = 1  	 ---->>>>  	j = Ny-1
     //j = Ny-2   ---->>>>  	j = 0
 
-    // STEP1 : Sending information to the bottom processor and receiving from top
+    // STEP1 : Sending & receiving information - Column wise (i=1 to i=Nx-1)
     auto sendBuffer1 = Kokkos::subview(localArray, 1, Kokkos::ALL() );
     auto recvBuffer1 = Kokkos::subview(localArray, Nx-1, Kokkos::ALL() );
     if (neigborProc[0] != MPI_PROC_NULL)
@@ -88,7 +89,7 @@ void haloTransfer( Kokkos::View<double**, Kokkos::LayoutRight> localArray,
     MPI_Wait(&request[0], &status); //blocks and waits for destination process to receive data
     MPI_Wait(&request[1], &status); //blocks and waits for destination process to receive data
     
-    // STEP2 : Sending information to the top processor and receiving from bottom
+    // STEP2 : Sending & receiving information - Column wise (i=Nx-2 to i=0)
     auto sendBuffer2 = Kokkos::subview(localArray, Nx-2, Kokkos::ALL() );
     auto recvBuffer2 = Kokkos::subview(localArray, 0, Kokkos::ALL() );
     if (neigborProc[1] != MPI_PROC_NULL)
@@ -109,7 +110,7 @@ void haloTransfer( Kokkos::View<double**, Kokkos::LayoutRight> localArray,
        packing the data into a contiguous buffer before MPI data transfer. */
     // =========================================================================================
     
-    // STEP3 : Sending information to the left processor and receiving from right
+    // STEP3 : Sending & receiving information - Row wise (j=1 to j=Ny-1)
     Kokkos::View<double*> sendBuffer3("sendBuffer", Nx);
     Kokkos::View<double*> recvBuffer3("recvBuffer", Nx);
     if (neigborProc[2] != MPI_PROC_NULL)
@@ -131,7 +132,7 @@ void haloTransfer( Kokkos::View<double**, Kokkos::LayoutRight> localArray,
     }
     MPI_Wait(&request[4], &status); //blocks and waits for destination process to receive data
     
-    // STEP4 : Sending information to the right processor and receiving from left
+    // STEP4 : Sending & receiving information - Row wise (j=Ny-2 to j=0)
     Kokkos::View<double*> sendBuffer4("sendBuffer", Nx);
     Kokkos::View<double*> recvBuffer4("recvBuffer", Nx);
     if (neigborProc[3] != MPI_PROC_NULL)
@@ -154,5 +155,61 @@ void haloTransfer( Kokkos::View<double**, Kokkos::LayoutRight> localArray,
     MPI_Wait(&request[6], &status); //blocks and waits for destination process to receive data   
 }
 // ####################### Done #################################
+
+
+// ==============================================================
+// ======== Gather all subarray data to the global array ========
+// ==============================================================
+void gatherData( Kokkos::View<double**, Kokkos::LayoutRight> globalArray, 
+                 Kokkos::View<double**, Kokkos::LayoutRight> localArray, 
+                 const int &Nx,  const int &Ny, 
+                 const int &Npx, const int &Npy, 
+                 const int &numGhost, const MPI_Comm& comm ) {
+    int myRank, ibegin, jbegin, myCoords[2];
+    MPI_Comm_rank(comm, &myRank);
+    MPI_Cart_coords(comm, myRank, 2, myCoords);
+
+    Kokkos::View<double*> buffer("buffer", (Nx-numGhost)*(Ny-numGhost));
+    if (myRank == 0) {
+        // Copy rank 0's own data directly
+        Kokkos::parallel_for("copy local to global in rank 0",
+            Kokkos::MDRangePolicy<Kokkos::Rank<2>>({1,1}, {Nx-1, Ny-1}),
+            KOKKOS_LAMBDA(int i, int j) {
+                globalArray(i-1,j-1) = localArray(i,j);
+        });
+        Kokkos::fence();
+        // Receive data from other ranks
+        for (int proc = 1; proc < Npx*Npy; proc++) {
+            MPI_Recv(myCoords, 2, MPI_INT, proc, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            MPI_Recv(buffer.data(), (Nx-numGhost)*(Ny-numGhost), MPI_DOUBLE, proc, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            ibegin = myCoords[0]*(Nx-numGhost);
+            jbegin = myCoords[1]*(Ny-numGhost);
+            Kokkos::parallel_for("copy local arrays back to global array",
+                Kokkos::MDRangePolicy<Kokkos::Rank<2>>({0,0}, {Nx-numGhost, Ny-numGhost}),
+                KOKKOS_LAMBDA(int i, int j) {
+                    int index = i + j*(Ny-numGhost); // Index of flattened array
+                    int ii = ibegin + i;
+                    int jj = jbegin + j;
+                    globalArray(ii,jj) = buffer(index);
+            });
+            
+        }
+    }
+    else {
+        Kokkos::parallel_for("copy local arrays back to global array",
+            Kokkos::MDRangePolicy<Kokkos::Rank<2>>({0,0}, {Nx-numGhost, Ny-numGhost}),
+            KOKKOS_LAMBDA(int i, int j) {
+                int index = i + j*(Ny-numGhost); // Index of flattened array
+                buffer(index) = localArray(i+1,j+1);
+        });
+        // Send local data to rank 0
+        MPI_Send(myCoords, 2 , MPI_INT, 0, 0, MPI_COMM_WORLD);
+        MPI_Send(buffer.data(), (Nx-numGhost)*(Ny-numGhost) , MPI_DOUBLE, 0, 1, MPI_COMM_WORLD);
+    }
+    MPI_Barrier(comm);
+
+}
+// ####################### Done #################################
+
 
 #endif

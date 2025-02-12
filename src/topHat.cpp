@@ -1,4 +1,6 @@
 #include <iostream>
+#include <fstream>
+#include <iomanip> 
 
 #include "topHat.hpp"
 
@@ -81,13 +83,29 @@ int main(int argc, char* argv[]) {
         auto globalArray_output = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), globalArray);
         if (myRank==0) {
             cout << "Generated random array:\n";
-            for (int i = 0; i < Ngx; i++) {
-                for (int j = 0; j < Ngy; j++) {
+            cout << fixed << setprecision(2);
+            for (int j = 0; j < Ngy; j++) {
+                for (int i = 0; i < Ngx; i++) {
                     cout << globalArray_output(i,j) << "\t";
                 }
                 cout << "\n";
             }
+            // Write a file also
+            ofstream outputFile("randomArray.txt");
+            if (outputFile.is_open()) {
+                outputFile << std::fixed << std::setprecision(2);  // Set to 2 decimal places
+                for (int j = 0; j < Ngy; j++) {
+                    for (int i = 0; i < Ngx; i++) {
+                        outputFile << globalArray_output(i, j) << "\t";  // Tab-separated values
+                    }
+                    outputFile << "\n";  // Newline after each row
+                }
+                outputFile.close();
+            } 
+            else  
+                cerr << "Error in writing output file\n";
         }
+        
         // ####################### Done #################################
 
         // **************************************************************
@@ -115,48 +133,39 @@ int main(int argc, char* argv[]) {
         // ####################### Done #################################
         
         // **************************************************************
-        // Print local arrays
+        // Gather all local arrays to global array in rank 0
         // **************************************************************
-        auto localArray_output = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), localArray);
-        Kokkos::deep_copy(localArray_output, localArray);  // Copy updated data from device to host
-        Kokkos::fence();
-        if (myRank==0) {
-            cout << "Local Array - Rank 0:\n";
-            for (int i = 0; i < Nx; i++) {
-                for (int j = 0; j < Ny; j++) {
-                    cout << localArray_output(i,j) << "\t";
-                }
-                cout << "\n";
-            }
-        }
-        if (myRank==1) {
-            cout << "Local Array - Rank 1:\n";
-            for (int i = 0; i < Nx; i++) {
-                for (int j = 0; j < Ny; j++) {
-                    cout << localArray_output(i,j) << "\t";
-                }
-                cout << "\n";
-            }
-        }
-        if (myRank==2) {
-            cout << "Local Array - Rank 2:\n";
-            for (int i = 0; i < Nx; i++) {
-                for (int j = 0; j < Ny; j++) {
-                    cout << localArray_output(i,j) << "\t";
-                }
-                cout << "\n";
-            }
-        }
-        if (myRank==3) {
-            cout << "Local Array - Rank 3:\n";
-            for (int i = 0; i < Nx; i++) {
-                for (int j = 0; j < Ny; j++) {
-                    cout << localArray_output(i,j) << "\t";
-                }
-                cout << "\n";
-            }
-        }
+        gatherData( globalArray, localArray, Nx, Ny, Npx, Npy, numGhost, comm );
         // ####################### Done #################################
+        
+        if (myRank == 0) {
+            Kokkos::deep_copy(globalArray_output, globalArray);  // Copy updated data from device to host
+            Kokkos::fence();
+            
+            cout << "Final filtered array:\n";
+            for (int j = 0; j < Ngy; j++) {
+                for (int i = 0; i < Ngx; i++) {
+                    cout << globalArray_output(i,j) << "\t";
+                }
+                cout << "\n";
+            }
+            // Write a file also
+            ofstream outputFile("filteredArray.txt");
+            if (outputFile.is_open()) {
+                outputFile << std::fixed << std::setprecision(2);  // Set to 2 decimal places
+                for (int j = 0; j < Ngy; j++) {
+                    for (int i = 0; i < Ngx; i++) {
+                        outputFile << globalArray_output(i, j) << "\t";  // Tab-separated values
+                    }
+                    outputFile << "\n";  // Newline after each row
+                }
+                outputFile.close();
+            } 
+            else  
+                cerr << "Error in writing output file\n";
+        }
+            
+        
 
     }
     Kokkos::finalize();

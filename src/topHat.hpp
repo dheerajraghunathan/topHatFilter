@@ -8,7 +8,6 @@
 #include <iomanip> 
 #include <Kokkos_Core.hpp>
 #include <Kokkos_Random.hpp>
-
 #include <mpi.h>
 
 using namespace std;
@@ -18,7 +17,7 @@ using namespace std;
 // ==============================================================
 void generateRandomData(Kokkos::View<double**, Kokkos::LayoutRight> globalArray, const int &Nx, const int &Ny) {
     // Create random number pool
-    Kokkos::Random_XorShift64_Pool<> rand_pool(time(NULL)); ///*seed=*/12345
+    Kokkos::Random_XorShift64_Pool<> rand_pool(time(NULL)); // Optional: /*seed=*/12345
 
     // Parallel random number generation
     Kokkos::parallel_for("GenerateRandom2D",
@@ -236,7 +235,7 @@ void gatherData( Kokkos::View<double**, Kokkos::LayoutRight> globalArray,
             Kokkos::parallel_for("copy local arrays back to global array",
                 Kokkos::MDRangePolicy<Kokkos::Rank<2>>({0,0}, {Nx-numGhost, Ny-numGhost}),
                 KOKKOS_LAMBDA(int i, int j) {
-                    int index = i + j*(Ny-numGhost); // Index of flattened array
+                    int index = i + j*(Nx-numGhost); // Index of flattened array
                     int ii = ibegin + i;    // Global coordinates
                     int jj = jbegin + j;    // Global coordinates
                     globalArray(ii,jj) = buffer(index);
@@ -248,7 +247,7 @@ void gatherData( Kokkos::View<double**, Kokkos::LayoutRight> globalArray,
         Kokkos::parallel_for("copy local arrays back to global array",
             Kokkos::MDRangePolicy<Kokkos::Rank<2>>({0,0}, {Nx-numGhost, Ny-numGhost}),
             KOKKOS_LAMBDA(int i, int j) {
-                int index = i + j*(Ny-numGhost); // Index of flattened array
+                int index = i + j*(Nx-numGhost); // Index of flattened array
                 buffer(index) = localArray(i+1,j+1);
         });
         Kokkos::fence();

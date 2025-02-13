@@ -107,7 +107,7 @@ int main(int argc, char* argv[]) {
         // **************************************************************
         // Gather all local arrays to global array in rank 0
         // **************************************************************
-        gatherData( globalArray, localArray, Nx, Ny, Npx, Npy, numGhost, comm );
+        gatherData(globalArray, localArray, Nx, Ny, Npx, Npy, numGhost, comm);
         // ####################### Done #################################
         
         // **************************************************************

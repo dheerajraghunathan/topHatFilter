@@ -7,7 +7,7 @@ This program applies a 3x3 top-hat filter to a randomly generated 2D array. The 
 *   _Kokkos_ package
 *   _CUDA-Aware MPI_ package
 
-# Buiding and running the code
+# Building and running the code
 
 ### Linux
 We can follow the standard cmake procedure for building the code and mpirun for code execution.

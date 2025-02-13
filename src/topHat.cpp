@@ -1,10 +1,7 @@
 #include <iostream>
-#include <fstream>
-#include <iomanip> 
 
 #include "topHat.hpp"
 
-using namespace std;
 int main(int argc, char* argv[]) {
     MPI_Init(&argc, &argv);
     Kokkos::initialize(argc, argv);
@@ -16,7 +13,8 @@ int main(int argc, char* argv[]) {
         int Npx = 2, Npy = 2;   // No. of processors in each direction
         int Nx  = Ngx/Npx;      // Local array size in X direction
         int Ny  = Ngy/Npy;      // Local array size in Y direction
-        int numGhost = 2;
+        int numGhost = 2;       // Additional ghost nodes
+
 		Nx = Nx + numGhost;
 		Ny = Ny + numGhost;
 		// ####################### Done #################################
@@ -77,35 +75,9 @@ int main(int argc, char* argv[]) {
         // ####################### Done #################################
         
         // **************************************************************
-        // Print the array
+        // Print to screen and write to a file
         // **************************************************************
-        // Allocate an array in the host space & copy the globalArray
-        auto globalArray_output = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), globalArray);
-        if (myRank==0) {
-            cout << "Generated random array:\n";
-            cout << fixed << setprecision(2);
-            for (int j = 0; j < Ngy; j++) {
-                for (int i = 0; i < Ngx; i++) {
-                    cout << globalArray_output(i,j) << "\t";
-                }
-                cout << "\n";
-            }
-            // Write a file also
-            ofstream outputFile("randomArray.txt");
-            if (outputFile.is_open()) {
-                outputFile << std::fixed << std::setprecision(2);  // Set to 2 decimal places
-                for (int j = 0; j < Ngy; j++) {
-                    for (int i = 0; i < Ngx; i++) {
-                        outputFile << globalArray_output(i, j) << "\t";  // Tab-separated values
-                    }
-                    outputFile << "\n";  // Newline after each row
-                }
-                outputFile.close();
-            } 
-            else  
-                cerr << "Error in writing output file\n";
-        }
-        
+        printArray(globalArray, Ngx, Ngy, myRank, "randomArray");
         // ####################### Done #################################
 
         // **************************************************************
@@ -138,34 +110,11 @@ int main(int argc, char* argv[]) {
         gatherData( globalArray, localArray, Nx, Ny, Npx, Npy, numGhost, comm );
         // ####################### Done #################################
         
-        if (myRank == 0) {
-            Kokkos::deep_copy(globalArray_output, globalArray);  // Copy updated data from device to host
-            Kokkos::fence();
-            
-            cout << "Final filtered array:\n";
-            for (int j = 0; j < Ngy; j++) {
-                for (int i = 0; i < Ngx; i++) {
-                    cout << globalArray_output(i,j) << "\t";
-                }
-                cout << "\n";
-            }
-            // Write a file also
-            ofstream outputFile("filteredArray.txt");
-            if (outputFile.is_open()) {
-                outputFile << std::fixed << std::setprecision(2);  // Set to 2 decimal places
-                for (int j = 0; j < Ngy; j++) {
-                    for (int i = 0; i < Ngx; i++) {
-                        outputFile << globalArray_output(i, j) << "\t";  // Tab-separated values
-                    }
-                    outputFile << "\n";  // Newline after each row
-                }
-                outputFile.close();
-            } 
-            else  
-                cerr << "Error in writing output file\n";
-        }
-            
-        
+        // **************************************************************
+        // Print the filtered array to screen and write to a file
+        // **************************************************************
+        printArray(globalArray, Ngx, Ngy, myRank, "filteredArray");
+        // ####################### Done #################################
 
     }
     Kokkos::finalize();
